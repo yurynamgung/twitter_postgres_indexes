@@ -1,180 +1,321 @@
-# Parallel Twitter in Postgres
+# Twitter Postgres (Indexes)
 
-![](https://github.com/mikeizbicki/twitter_postgres_parallel/workflows/tests_normalized/badge.svg)
+This is a continuation of the [parallel twitter in postgres assignment](https://github.com/mikeizbicki/twitter_postgres_parallel).
 
-![](https://github.com/mikeizbicki/twitter_postgres_parallel/workflows/tests_normalized_parallel/badge.svg)
+I have provided you the solutions for loading data into the `pg_denormalized` and `pg_normalized_batch` services.
+(We're not using `pg_normalized` because it's so slow to load.)
 
-![](https://github.com/mikeizbicki/twitter_postgres_parallel/workflows/tests_normalized_batch/badge.svg)
+Your goal will be to create fast queries.
 
-![](https://github.com/mikeizbicki/twitter_postgres_parallel/workflows/tests_normalized_batch_parallel/badge.svg)
+## Step 0: Prepare the repo/docker
 
-![](https://github.com/mikeizbicki/twitter_postgres_parallel/workflows/tests_denormalized/badge.svg)
+1. Fork this repo, and clone your fork onto the lambda server.
 
-![](https://github.com/mikeizbicki/twitter_postgres_parallel/workflows/tests_denormalized_parallel/badge.svg)
-
-In this assignment, you will make your data loading into postgres significantly faster using batch loading and parallel loading.
-Notice that many of the test cases above are already passing;
-you will have to ensure that they remain passing as you complete the tasks below.
-
-## Tasks
-
-### Setup
-
-1. Fork this repo
-1. Enable github action on your fork
-1. Clone the fork onto the lambda server
-1. Modify the `README.md` file so that all the test case images point to your repo
-1. Modify the `docker-compose.yml` to specify valid ports for each of the postgres services
-    1. recall that ports must be >1024 and not in use by any other user on the system
-    1. verify that you have modified the file correctly by running
-       ```
-       $ docker-compose up
-       ```
-       with no errors
-
-### Sequential Data Loading
-
-Bring up a fresh version of your containers by running the commands:
-```
-$ docker-compose down
-$ docker-compose volume prune
-$ docker-compose up -d --build
-```
-
-Run the following command to insert data into each of the containers sequentially.
-(Note that you will have to modify the ports to match the ports of your `docker-compose.yml` file.)
-```
-$ sh load_tweets_sequential.sh
-```
-Record the elapsed time in the table in the Submission section below.
-You should notice that batching significantly improves insertion performance speed.
-
-> **NOTE:**
-> The `time` command outputs 3 times:
->
-> 1. The `elapsed` time (also called wall-clock time) is the actual amount of time that passes on the system clock between the program's start and end.
->    This is what should be recorded in the table above.
->
-> 1. The `user` time is the total amount of CPU time used by the program.
->    This can be different than wall-clock time for 2 reasons:
->
->    1. If the process uses multiple CPUs, then all of the concurrent CPU time is added together.
->       For example, if a process uses 8 CPUS, then the `user` time could be up to 8 times higher than the actual wall-clock time.
->       (Your sequential process in this section is single threaded, so this won't be applicable; but this will be applicable for the parallel process in the next section.)
->
->    1. If the command has to wait on an external resource (e.g. disk/network IO),
->       then this waiting time is not included.
->       (Your python processes will have to wait on the postgres server,
->       and the postgres server's processing time is not included in the `user` time because it is a different process.
->       In general, the postgres server could be running on an entirely different machine.)
->
-> 1. The `system` time is the total amount of CPU time used by the Linux kernel when managing this process.
->    For the vast majority of applications, this will be a very small amount.
-
-### Parallel Data Loading
-
-There are 10 files in `/data` folder of this repo.
-If we process each file in parallel, then we should get a theoretical 10x speed up.
-The file `load_tweets_parallel.sh` will insert the data in parallel and get nearly a 10-fold speedup,
-but there are several changes that you'll have to make first to get this to work.
-
-#### Denormalized Data
-
-Currently, there is no code in the `load_tweets_parallel.sh` file for loading the denormalized data.
-Your first task is to use the GNU `parallel` program to load this data.
-
-Complete the following steps:
-
-1. Write a POSIX script `load_denormalized.sh` that takes a single parameter as input that represents a data file.
-   The script should then load this file into the database using the same technique as in the `load_tweets_sequential.sh` file for the denormalized database.
-   In particular, you know you've implemented this file correctly if the following bash code correctly loads the database.
+1. Remove the volumes you created in your previous assignment by first bringing down/stopping all containers, then pruning the volumes:
    ```
-   for file in $(find data); do
-       sh load_denormalized.sh $file
-   done
+   $ docker stop $(docker ps -q)
+   $ docker rm $(docker ps -qa)
+   $ docker volume prune
    ```
 
-2. Call the `load_denormalized.sh` file using the `parallel` program from within the `load_tweets_parallel.sh` script.
-   You know you've completed this step correctly if the `check-answers.sh` script passes and the test badge turns green.
+1. Modify the `docker-compose.yml` file so that the ports for each of the services are distinct.
 
-#### Normalized Data (unbatched)
+    Bring up the docker containers and ensure there are no errors
+    ```
+    $ docker-compose up -d --build
+    ```
 
-Parallel loading of the unbatched data should "just work."
-The code in the `load_tweets.py` file is structured so that you never run into deadlocks.
-Unfortunately, the code is extremely slow,
-so even when run in parallel it is still slower than the batched code.
+1. Notice that the `docker-compose.yml` file uses a [bind mount](https://docs.docker.com/storage/bind-mount/) into your `$HOME/bigdata` directory whereas all of our previous assignments stored data into a [named volume](https://docs.docker.com/storage/volumes/).
 
-> **NOTE:**
-> The `tests_normalized_batch_parallel` are currently failing because they depend on the `load_tweets_parallel.sh` script,
-> and this script is currently failing due deadlocks in the `load_tweets_batch.py` script.
-> This test case should pass as soon as that script no longer generates errors.
-> (But that script doesn't need to be fully correct.)
 
-#### Normalized Data (batched)
+    This is necessary because in this assignment, you will be creating approximately 100GB worth of databases.
+    This won't fit in your home folder on the NVME drive (10G limit), and so you must put it into the HDD drives (250G limit).
 
-Parallel loading of the batched data will fail due to deadlocks.
-These deadlocks will cause some of your parallel loading processes to crash.
-So all the data will not get inserted,
-and you will fail the `check-answers.sh` tests.
+    This will create a few problems for you.
+    In particular, notice that the permissions of the created folders are rather weird:
+    ```
+    $ cd ~/bigdata
+    $ ls -l
+    total 12
+    drwxr-xr-x+  2 usertest usertest 4096 Feb  2 09:09 flask_web
+    drwx------+ 19  4688518 usertest 4096 Apr  8 15:19 pg_denormalized
+    drwx------+ 19  4688518 usertest 4096 Apr  8 15:19 pg_normalized_batch
+    ```
+    If you run the commands above, you will have different UIDs.
+    These are the UID of the `root` user of your docker container.
+    Since you are not currently logged in as that user,
+    you will not be able to manipulate these files directly.
 
-There are two possible ways to fix this.
-The most naive method is to catch the exceptions generated by the deadlocks in python and repeat the failed queries.
-This will cause all of the data to be correctly inserted,
-so you will pass the test cases.
-Unfortunately, python will have to repeat queries so many times that the parallel code will be significantly slower than the sequential code.
-My code took several hours to complete!
+    The main way this is a problem is that if you need to reset/delete your volumes fro some reason.
+    When using a named mount, this was easy to do with the
+    ```
+    $ docker volume prune
+    ```
+    command.
+    This command will not work for bind mounts, however.
+    Whenever you use a bind mount, everything must be done manually.
+    These mounts have more flexibility (we can store the data whereever we want), but they become much more awkward to use.
 
-So the best way to fix this problem is to prevent the deadlocks in the first place.
+    The easiest way to "reset" our containers is to do it from within docker.
+    The following commands will login to the docker containers and delete all of postgres's data:
+    ```
+    $ docker-compose exec pg_normalized_batch bash -c 'rm -rf $PGDATA'
+    $ docker-compose exec pg_denormalized bash -c 'rm -rf $PGDATA'
+    ```
+    After running these commands, if you bring the containers down and back up, postgres will detect that the volumes are empty and re-run the `schema.sql` scripts to populate the databases.
 
-<img src=you-cant-have-a-deadlock-if-you-remove-the-locks.jpg width=600px />
 
-In this case, the deadlocks are caused by the `UNIQUE` constraints,
-and so we need to figure out how to remove those constraints.
-This is unfortunately rather complicated.
+## Step 1: Load the Data
 
-The most difficult `UNIQUE` constraint to remove is the `UNIQUE` constraint on the `url` field of the `urls` table.
-The `get_id_urls` function relies on this constraint, and there is no way to implement this function without the `UNIQUE` constraint.
-So to delete this constraint, we will have to denormalize the representation of urls in our database.
-Perform the following steps to do so:
+For this assignment, we will work with 10 days of twitter data, about 31 million tweets.
+This is enough data that indexes will dramatically improve query times,
+but you won't have to wait hours/days to create each index and see if it works correctly.
 
-1. Modify the `services/pg_normalized_batch/schema.sql` file by:
-   1. deleting the `urls` table
-   1. replacing all of the `id_urls BIGINT` columns with a `url TEXT` column
-   1. deleting all foreign keys that connected the old `id_urls` columns to the `urls` table
-
-1. Modify the `load_tweets_batch.py` file by:
-   1. deleting the `get_id_urls` function
-   1. modifying all of the references to the id generated by `get_id_urls` to directly store the url in the `url` field of the table
-
-There are also several other `UNIQUE` constraints (mostly in `PRIMARY KEY`s) that need to be removed from other columns of the table.
-Once you remove these constraints, this will cause downstream errors in both the SQL and Python that you will have to fix.
-(But I'm not going to tell you what these errors look like in advance... you'll have to encounter them on your own.)
-
-> **NOTE:**
-> In a production database where you are responsible for the consistency of your data,
-> you would never want to remove these constraints.
-> In our case, however, we're not responsible for the consistency of the data.
-> We want to represent the data exactly how Twitter represents it "upstream",
-> and so Twitter are responsible for ensuring the consistency.
-
-#### Results
-
-Once you have verified the correctness of your parallel code,
-bring up a fresh instances of your containers and measure your code's runtime with the command
+Load the data into docker by running the command
 ```
 $ sh load_tweets_parallel.sh
+================================================================================
+load pg_denormalized
+================================================================================
+/data/tweets/geoTwitter21-01-02.zip
+COPY 2979992
+/data/tweets/geoTwitter21-01-04.zip
+COPY 3044365
+/data/tweets/geoTwitter21-01-05.zip
+COPY 3038917
+/data/tweets/geoTwitter21-01-03.zip
+COPY 3143286
+/data/tweets/geoTwitter21-01-01.zip
+COPY 3189325
+/data/tweets/geoTwitter21-01-10.zip
+COPY 3129896
+/data/tweets/geoTwitter21-01-09.zip
+COPY 3157691
+/data/tweets/geoTwitter21-01-08.zip
+COPY 3148130
+/data/tweets/geoTwitter21-01-07.zip
+COPY 3306556
+/data/tweets/geoTwitter21-01-06.zip
+COPY 3376266
+1587.10user 328.30system 18:18.76elapsed 174%CPU (0avgtext+0avgdata 17376maxresident)k
+0inputs+27856outputs (0major+70545minor)pagefaults 0swaps
+================================================================================
+load pg_normalized_batch
+================================================================================
+2022-04-08 15:38:18.510811 /data/tweets/geoTwitter21-01-02.zip
+...
+...
+...
+23974.74user 1259.12system 51:55.11elapsed 810%CPU (0avgtext+0avgdata 3113188maxresident)k
+5808inputs+86232outputs (3major+847834998minor)pagefaults 0swaps
 ```
-Record the elapsed times in the table below.
-You should notice that parallelism achieves a nearly (but not quite) 10x speedup in each case.
+
+Observe the runtimes in the above output to get a sense for how long your own queries should take.
+Note that these operations max out the disk IO on the lambda server, and so if many students are running them at once, they could take considerably longer to complete.
+
+### Disk Usage
+
+We're storing the twitter data in three formats (the original zip files, the denormalized database, and the normalized database).
+Let's take a minute to see the total disk usage of each of these formats to help us understand the trade-offs of using each format.
+
+The following commands will output the disk usage inside of the databases.
+```
+$ docker-compose exec pg_denormalized sh -c 'du -hd0 $PGDATA'
+75G	/var/lib/postgresql/data
+$ docker-compose exec pg_normalized_batch sh -c 'du -hd0 $PGDATA'
+25G	/var/lib/postgresql/data
+```
+Notice that the denormalized database is using considerably more disk space than the normalized one.
+
+To get the disk usage of the raw zip files, we first copy the definition of the `files` variable from the `load_tweets_parallel.sh` file into the terminal:
+```
+$ files='/data/tweets/geoTwitter21-01-01.zip
+/data/tweets/geoTwitter21-01-02.zip
+/data/tweets/geoTwitter21-01-03.zip
+/data/tweets/geoTwitter21-01-04.zip
+/data/tweets/geoTwitter21-01-05.zip
+/data/tweets/geoTwitter21-01-06.zip
+/data/tweets/geoTwitter21-01-07.zip
+/data/tweets/geoTwitter21-01-08.zip
+/data/tweets/geoTwitter21-01-09.zip
+/data/tweets/geoTwitter21-01-10.zip'
+```
+Then run the following command:
+```
+$ du -ch $files
+1.7G	/data/tweets/geoTwitter21-01-01.zip
+1.6G	/data/tweets/geoTwitter21-01-02.zip
+1.7G	/data/tweets/geoTwitter21-01-03.zip
+1.6G	/data/tweets/geoTwitter21-01-04.zip
+1.6G	/data/tweets/geoTwitter21-01-05.zip
+1.8G	/data/tweets/geoTwitter21-01-06.zip
+1.8G	/data/tweets/geoTwitter21-01-07.zip
+1.7G	/data/tweets/geoTwitter21-01-08.zip
+1.7G	/data/tweets/geoTwitter21-01-09.zip
+1.7G	/data/tweets/geoTwitter21-01-10.zip
+17G	total
+```
+We can see that the "flat" zip files use the least amount of data.
+
+Why?
+
+Postgres will keep all of the data compressed, but it has a lot of overhead in its heap tables (each row has overhead, and each page has overhead, and we will have empty space in each page).
+We haven't discussed the `JSONB` column type in detail, but this also introduces significant overhead in order to have an efficient access operations.
+
+## Step 2: Create indexes on the normalized database
+
+I have provided a series of 5 sql queries for you, which you can find in the `sql.normalized_batch` folder.
+You can time the running of these queries with the command
+```
+$ time docker-compose exec pg_normalized_batch ./check_answers.sh sql.normalized_batch
+sql.normalized_batch/01.sql pass
+sql.normalized_batch/02.sql pass
+sql.normalized_batch/03.sql pass
+sql.normalized_batch/04.sql pass
+sql.normalized_batch/05.sql pass
+
+real	2m5.882s
+user	0m0.561s
+sys	0m0.403s
+```
+
+Your first task is to create indexes so that the command above takes less than 5 seconds to run (i.e. one second per query).
+Most of this runtime is overhead of the shell script.
+If you open up psql and run the queries directly,
+then you should see the queries taking only milliseconds to run.
+
+> **NOTE:**
+> None of your indexes should be partial indexes.
+> This is so that you could theoretically replace any of the conditions with any other value,
+> and the results will still be returned quickly.
+
+> **HINT:**
+> My solution creates 3 btree indexes and 1 gin index.
+> Here's the output of running the command above with the indexes created:
+> ```
+> $ time docker-compose exec pg_normalized_batch   ./check_answers.sh sql.normalized_batch
+> sql.normalized_batch/01.sql pass
+> sql.normalized_batch/02.sql pass
+> sql.normalized_batch/03.sql pass
+> sql.normalized_batch/04.sql pass
+> sql.normalized_batch/05.sql pass
+> 
+> real	0m3.176s
+> user	0m0.571s
+> sys	0m0.377s
+> ```
+
+> **IMPORTANT:**
+> As you create your indexes, you should add them to the file `services/pg_normalized_batch/schema-indexes.sql`.
+> (Like the `schema.sql` file, this file would get automatically run by postgres if you were to rebuild the containers+images.)
+> In general, you never want to directly modify the schema of a production database.
+> Instead, you write your schema-modifying code in a sql file,
+> commit the sql file to your git repo,
+> then execute the sql file.
+> This ensures that you can always fully recreate your database schema from the project's git repo.
+
+## Step 3: Create queries and indexes for the denormalized database
+
+I have provided you the sql queries for the normalized database, but not for the denormalized one.
+You will have to modify the files in `sql.denormalized` so that they produce the same output as the files in `sql.normalized_batch`.
+The purpose of this exercise it twofold:
+
+1. to give you practice writing queries into a denormalized database (you've only written queries for a normalized database at this point)
+2. to give you practice writing queries and indexes at the same time (the exact queries you'll write in the real world will depend on the indexes you're able to create and vice versa)
+
+You should add all of the indexes you create into the file `services/pg_denormalized/schema-indexes.sql`,
+just like you did for the normalized database.
+
+You can check the runtime and correctness of your denormalized queries with the command
+```
+$ time docker-compose exec pg_denormalized ./check_answers.sh sql.denormalized
+```
+
+You will likely notice that the denormalized representation is significantly slower than the normalized representation when there are no indexes present.
+My solution takes about 4 minutes without indexes, and 3 seconds with indexes.
+The indexed solution is still slower than the normalized solution because there are sorts in the query plan that the indexes cannot eliminate.
+In fact, no set of indexes would be able to eliminate these sorts... we'll talk later about how to eliminate them using materialized views.
+
+> **HINT:**
+> Here is the output of timing my SQL queries with no indexes present.
+> ```
+> $ time docker-compose exec pg_denormalized ./check_answers.sh sql.denormalized
+> sql.denormalized/01.sql pass
+> sql.denormalized/02.sql pass
+> sql.denormalized/03.sql pass
+> sql.denormalized/04.sql pass
+> sql.denormalized/05.sql pass
+> 
+> real	39m6.800s
+> user	0m0.875s
+> sys	0m0.471s
+> ```
+> Notice that these runtimes are WAY slower than for the normalized database. 
+>
+> After building the indexes, the runtimes are basically the same as for the normalized database:
+> ```
+> $ time docker-compose exec pg_denormalized ./check_answers.sh sql.denormalized
+> sql.denormalized/01.sql pass
+> sql.denormalized/02.sql pass
+> sql.denormalized/03.sql pass
+> sql.denormalized/04.sql pass
+> sql.denormalized/05.sql pass
+> 
+> real	0m2.903s
+> user	0m0.621s
+> sys	0m0.389s
+> ```
 
 ## Submission
 
-Ensure that your runtimes on the lambda server are recorded below.
+We will not use github actions in this assignment,
+since this assignment uses too much disk space and computation.
+In general, there are no great techniques for benchmarking/testing programs on large datasets.
+The best solution is to test on small datasets (like we did for the first version of twitter\_postgres),
+and carefully design those tests so that they ensure good performance on the large datasets.
+We're not following this procedure, however, to ensure that you get some actual practice with these larger datasets.
 
-|                        | elapsed time (sequential) | elapsed time (parallel) |
-| -----------------------| ------------------------- | ------------------------- |
-| `pg_normalized`        |                           |                           | 
-| `pg_normalized_batch`  |                           |                           | 
-| `pg_denormalized`      |                           |                           | 
+To submit your assignment:
 
-Then upload a link to your forked github repo on sakai.
+1. Run the following commands
+   ```
+   $ ( time docker-compose exec pg_normalized_batch ./check_answers.sh sql.normalized_batch ) > results.normalized_batch 2>&1
+   $ ( time docker-compose exec pg_denormalized     ./check_answers.sh sql.denormalized     ) > results.denormalized     2>&1
+   ```
+   This will create two files in your repo that contain the runtimes and results of your test cases.
+   In the command above:
+   1. `( ... )` is called a subshell in bash.
+      The `time` command is an internal built-in command in bash and not a separate executable file,
+      and it is necessary to wrap it in a subshell in order to redirect its output.
+   1. `2>&1` redirects stderr (2) to stdout (1), and since stdout is being redirected to a file, stderr will also be redirected to that file.
+      The output of the `time` command goes to stderr, and so this combined with the subshell ensure that the time command's output gets sent into the results files.
+
+   > **HINT:**
+   > Mastering these shell redirection tricks is a HUGE timesaver,
+   > and something that I'd recommend anyone working on remote servers professionally do.
+
+1. Add the `results.*`, `sql.denormalized/*`, and `services/*/schema-indexes.sql` files to your git repo, commit, and push to github.
+
+1. Submit a link to your forked repo to sakai.
+
+### Grading
+
+The assignment is worth 30 points.
+
+1. The timing of the normalized sql queries is worth 10 points.
+    If your queries take longer than 5 seconds, you will lose 2 points per second.
+
+1. Each file in `sql.denormalized` is worth 2 points (for 10 total).
+    Passing the test cases will ensure you get these points.
+
+1. The timing of the denormalized sql queries is worth 10 points.
+    If your queries take longer than 5 seconds, you will lose 2 points per second.
+
+   You cannot get any credit for these runtimes unless ALL of the denormalized test cases pass.
+
+I will check the `results.*` files in your github repos to grade your timing.
+
+> **HINT:**
+> Creating an index can take up to 30 minutes to complete when the lambda server is under no load.
+> When other students are also creating indexes, it could take several hours to complete.
+> So you shouldn't put this assignment off to the last minute.
