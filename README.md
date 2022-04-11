@@ -1,6 +1,6 @@
 # Twitter Postgres (Indexes)
 
-<img align="right" src=the-sql-queries.jpg width=300px >
+<img align="right" src=the-sql-queries.jpg width=200px >
 
 This is a continuation of the [parallel twitter in postgres assignment](https://github.com/mikeizbicki/twitter_postgres_parallel).
 
@@ -8,6 +8,11 @@ I have provided you the solutions for loading data into the `pg_denormalized` an
 We're not using `pg_normalized` because it's so slow to load and the resulting database is essentially the same as `pg_normalized_batch`.
 
 Your goal will be to create fast queries.
+
+For this assignment, we will work with 10 days of twitter data, about 31 million tweets.
+This is enough data that indexes will dramatically improve query times,
+but you won't have to wait hours/days to create each index and see if it works correctly.
+
 
 ## Step 0: Prepare the repo/docker
 
@@ -68,10 +73,6 @@ Your goal will be to create fast queries.
 
 
 ## Step 1: Load the Data
-
-For this assignment, we will work with 10 days of twitter data, about 31 million tweets.
-This is enough data that indexes will dramatically improve query times,
-but you won't have to wait hours/days to create each index and see if it works correctly.
 
 Load the data into docker by running the command
 ```
