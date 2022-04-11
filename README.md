@@ -1,6 +1,6 @@
 # Twitter Postgres (Indexes)
 
-<img src=the-sql-queries.jpg width=300px >
+<img float="right" src=the-sql-queries.jpg width=300px >
 
 This is a continuation of the [parallel twitter in postgres assignment](https://github.com/mikeizbicki/twitter_postgres_parallel).
 
