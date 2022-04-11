@@ -74,7 +74,8 @@ but you won't have to wait hours/days to create each index and see if it works c
 
 ## Step 1: Load the Data
 
-Load the data into docker by running the command
+Modify the `load_tweets_parallel.sh` and `load_denormalized.sh` files to use the port numbers specified in your `docker-compose.yml` file.
+Then load the data into docker:
 ```
 $ sh load_tweets_parallel.sh
 ================================================================================
@@ -112,11 +113,10 @@ load pg_normalized_batch
 23974.74user 1259.12system 51:55.11elapsed 810%CPU (0avgtext+0avgdata 3113188maxresident)k
 5808inputs+86232outputs (3major+847834998minor)pagefaults 0swaps
 ```
-
 Observe the runtimes in the above output to get a sense for how long your own queries should take.
 Note that these operations max out the disk IO on the lambda server, and so if many students are running them at once, they could take considerably longer to complete.
 
-### Disk Usage
+### Note on Disk Usage
 
 We're storing the twitter data in three formats (the original zip files, the denormalized database, and the normalized database).
 Let's take a minute to see the total disk usage of each of these formats to help us understand the trade-offs of using each format.
