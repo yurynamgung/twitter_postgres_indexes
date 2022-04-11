@@ -3,9 +3,11 @@
 This is a continuation of the [parallel twitter in postgres assignment](https://github.com/mikeizbicki/twitter_postgres_parallel).
 
 I have provided you the solutions for loading data into the `pg_denormalized` and `pg_normalized_batch` services.
-(We're not using `pg_normalized` because it's so slow to load.)
+We're not using `pg_normalized` because it's so slow to load and the resulting database is essentially the same as `pg_normalized_batch`.
 
 Your goal will be to create fast queries.
+
+<img src=the-sql-queries.jpg width=400px >
 
 ## Step 0: Prepare the repo/docker
 
