@@ -1,0 +1,9 @@
+sql.normalized_batch/01.sql pass
+sql.normalized_batch/02.sql pass
+sql.normalized_batch/03.sql pass
+sql.normalized_batch/04.sql pass
+sql.normalized_batch/05.sql pass
+
+real	0m2.611s
+user	0m0.530s
+sys	0m0.420s
